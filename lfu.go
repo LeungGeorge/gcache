@@ -2,6 +2,7 @@ package gcache
 
 import (
 	"container/list"
+	"fmt"
 	"time"
 )
 
@@ -13,6 +14,7 @@ type LFUCache struct {
 }
 
 func newLFUCache(cb *CacheBuilder) *LFUCache {
+	fmt.Println("newLFUCache")
 	c := &LFUCache{}
 	buildCache(&c.baseCache, cb)
 
@@ -22,6 +24,7 @@ func newLFUCache(cb *CacheBuilder) *LFUCache {
 }
 
 func (c *LFUCache) init() {
+	fmt.Println("LFUCache init")
 	c.freqList = list.New()
 	c.items = make(map[interface{}]*lfuItem, c.size+1)
 	c.freqList.PushFront(&freqEntry{
@@ -32,6 +35,7 @@ func (c *LFUCache) init() {
 
 // Set a new key-value pair
 func (c *LFUCache) Set(key, value interface{}) error {
+	fmt.Println("LFUCache Set")
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	_, err := c.set(key, value)
@@ -40,6 +44,7 @@ func (c *LFUCache) Set(key, value interface{}) error {
 
 // Set a new key-value pair with an expiration time
 func (c *LFUCache) SetWithExpire(key, value interface{}, expiration time.Duration) error {
+	fmt.Println("LFUCache SetWithExpire")
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	item, err := c.set(key, value)
@@ -53,6 +58,7 @@ func (c *LFUCache) SetWithExpire(key, value interface{}, expiration time.Duratio
 }
 
 func (c *LFUCache) set(key, value interface{}) (interface{}, error) {
+	fmt.Println("LFUCache set")
 	var err error
 	if c.serializeFunc != nil {
 		value, err = c.serializeFunc(key, value)
@@ -100,6 +106,7 @@ func (c *LFUCache) set(key, value interface{}) (interface{}, error) {
 // If it dose not exists key and has LoaderFunc,
 // generate a value using `LoaderFunc` method returns value.
 func (c *LFUCache) Get(key interface{}) (interface{}, error) {
+	fmt.Println("LFUCache Get")
 	v, err := c.get(key, false)
 	if err == KeyNotFoundError {
 		return c.getWithLoader(key, true)
@@ -111,6 +118,7 @@ func (c *LFUCache) Get(key interface{}) (interface{}, error) {
 // If it dose not exists key, returns KeyNotFoundError.
 // And send a request which refresh value for specified key if cache object has LoaderFunc.
 func (c *LFUCache) GetIFPresent(key interface{}) (interface{}, error) {
+	fmt.Println("LFUCache GetIFPresent")
 	v, err := c.get(key, false)
 	if err == KeyNotFoundError {
 		return c.getWithLoader(key, false)
@@ -119,6 +127,7 @@ func (c *LFUCache) GetIFPresent(key interface{}) (interface{}, error) {
 }
 
 func (c *LFUCache) get(key interface{}, onLoad bool) (interface{}, error) {
+	fmt.Println("LFUCache get")
 	v, err := c.getValue(key, onLoad)
 	if err != nil {
 		return nil, err
@@ -130,6 +139,7 @@ func (c *LFUCache) get(key interface{}, onLoad bool) (interface{}, error) {
 }
 
 func (c *LFUCache) getValue(key interface{}, onLoad bool) (interface{}, error) {
+	fmt.Println("LFUCache getValue")
 	c.mu.Lock()
 	item, ok := c.items[key]
 	if ok {
@@ -152,6 +162,7 @@ func (c *LFUCache) getValue(key interface{}, onLoad bool) (interface{}, error) {
 }
 
 func (c *LFUCache) getWithLoader(key interface{}, isWait bool) (interface{}, error) {
+	fmt.Println("LFUCache getWithLoader")
 	if c.loaderExpireFunc == nil {
 		return nil, KeyNotFoundError
 	}
@@ -177,12 +188,24 @@ func (c *LFUCache) getWithLoader(key interface{}, isWait bool) (interface{}, err
 	return value, nil
 }
 
+// 这个 increment（或者说是 freqList）设计的很巧妙。
+// 节点移动后，在 freqList 中 freq 也是递增排列的。
 func (c *LFUCache) increment(item *lfuItem) {
+	fmt.Println("LFUCache increment")
 	currentFreqElement := item.freqElement
+	// 当前元素在 freqList 中对应的节点
 	currentFreqEntry := currentFreqElement.Value.(*freqEntry)
+	// 新访问次数 = old + 1
 	nextFreq := currentFreqEntry.freq + 1
+	// 从节点 items 中删除该元素
 	delete(currentFreqEntry.items, item)
 
+	// 调试代码，查看 freqList 元素个数
+	// TODO （优化点）可以发现，freqList 元素是递增的。即便 items 中没有元素。
+	// 可以通过不断 Get 测试。
+	fmt.Println("freqList.len: ", c.freqList.Len())
+
+	// 获取
 	nextFreqElement := currentFreqElement.Next()
 	if nextFreqElement == nil {
 		nextFreqElement = c.freqList.InsertAfter(&freqEntry{
@@ -196,6 +219,7 @@ func (c *LFUCache) increment(item *lfuItem) {
 
 // evict removes the least frequence item from the cache.
 func (c *LFUCache) evict(count int) {
+	fmt.Println("LFUCache evict")
 	entry := c.freqList.Front()
 	for i := 0; i < count; {
 		if entry == nil {
@@ -215,6 +239,7 @@ func (c *LFUCache) evict(count int) {
 
 // Has checks if key exists in cache
 func (c *LFUCache) Has(key interface{}) bool {
+	fmt.Println("LFUCache Has")
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 	now := time.Now()
@@ -222,6 +247,7 @@ func (c *LFUCache) Has(key interface{}) bool {
 }
 
 func (c *LFUCache) has(key interface{}, now *time.Time) bool {
+	fmt.Println("LFUCache has")
 	item, ok := c.items[key]
 	if !ok {
 		return false
@@ -231,6 +257,7 @@ func (c *LFUCache) has(key interface{}, now *time.Time) bool {
 
 // Remove removes the provided key from the cache.
 func (c *LFUCache) Remove(key interface{}) bool {
+	fmt.Println("LFUCache Remove")
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
@@ -238,6 +265,7 @@ func (c *LFUCache) Remove(key interface{}) bool {
 }
 
 func (c *LFUCache) remove(key interface{}) bool {
+	fmt.Println("LFUCache remove")
 	if item, ok := c.items[key]; ok {
 		c.removeItem(item)
 		return true
@@ -247,6 +275,7 @@ func (c *LFUCache) remove(key interface{}) bool {
 
 // removeElement is used to remove a given list element from the cache
 func (c *LFUCache) removeItem(item *lfuItem) {
+	fmt.Println("LFUCache removeItem")
 	delete(c.items, item.key)
 	delete(item.freqElement.Value.(*freqEntry).items, item)
 	if c.evictedFunc != nil {
@@ -255,6 +284,7 @@ func (c *LFUCache) removeItem(item *lfuItem) {
 }
 
 func (c *LFUCache) keys() []interface{} {
+	fmt.Println("LFUCache keys")
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 	keys := make([]interface{}, len(c.items))
@@ -268,6 +298,7 @@ func (c *LFUCache) keys() []interface{} {
 
 // GetALL returns all key-value pairs in the cache.
 func (c *LFUCache) GetALL(checkExpired bool) map[interface{}]interface{} {
+	fmt.Println("LFUCache GetALL")
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 	items := make(map[interface{}]interface{}, len(c.items))
@@ -282,6 +313,7 @@ func (c *LFUCache) GetALL(checkExpired bool) map[interface{}]interface{} {
 
 // Keys returns a slice of the keys in the cache.
 func (c *LFUCache) Keys(checkExpired bool) []interface{} {
+	fmt.Println("LFUCache Keys")
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 	keys := make([]interface{}, 0, len(c.items))
@@ -296,6 +328,7 @@ func (c *LFUCache) Keys(checkExpired bool) []interface{} {
 
 // Len returns the number of items in the cache.
 func (c *LFUCache) Len(checkExpired bool) int {
+	fmt.Println("LFUCache Len")
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 	if !checkExpired {
@@ -313,6 +346,7 @@ func (c *LFUCache) Len(checkExpired bool) int {
 
 // Completely clear the cache
 func (c *LFUCache) Purge() {
+	fmt.Println("LFUCache Purge")
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
@@ -340,6 +374,7 @@ type lfuItem struct {
 
 // IsExpired returns boolean value whether this item is expired or not.
 func (it *lfuItem) IsExpired(now *time.Time) bool {
+	fmt.Println("lfuItem IsExpired")
 	if it.expiration == nil {
 		return false
 	}
