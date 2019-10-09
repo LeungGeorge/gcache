@@ -7,6 +7,7 @@ import (
 )
 
 // Discards the least frequently used items first.
+// LFUCache 会优先删除访问频次最少的键值对
 type LFUCache struct {
 	baseCache
 	items    map[interface{}]*lfuItem

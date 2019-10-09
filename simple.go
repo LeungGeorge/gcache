@@ -295,6 +295,7 @@ type simpleItem struct {
 }
 
 // IsExpired returns boolean value whether this item is expired or not.
+// 键值对是否超时
 func (si *simpleItem) IsExpired(now *time.Time) bool {
 	if si.expiration == nil {
 		return false

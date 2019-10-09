@@ -37,12 +37,14 @@ func (c *LRUCache) set(key, value interface{}) (interface{}, error) {
 
 	// Check for existing item
 	var item *lruItem
+	// 查找 key 是否已经存在，如果存在直接更新对应的 value
 	if it, ok := c.items[key]; ok {
 		c.evictList.MoveToFront(it)
 		item = it.Value.(*lruItem)
 		item.value = value
 	} else {
 		// Verify size not exceeded
+		// 判断是否超出缓存大小，如果超出就先删除一个元素
 		if c.evictList.Len() >= c.size {
 			c.evict(1)
 		}
@@ -51,6 +53,7 @@ func (c *LRUCache) set(key, value interface{}) (interface{}, error) {
 			key:   key,
 			value: value,
 		}
+		// 新数据加入链表首部
 		c.items[key] = c.evictList.PushFront(item)
 	}
 
@@ -91,6 +94,9 @@ func (c *LRUCache) SetWithExpire(key, value interface{}, expiration time.Duratio
 // Get a value from cache pool using key if it exists.
 // If it dose not exists key and has LoaderFunc,
 // generate a value using `LoaderFunc` method returns value.
+// 读取键值对
+// 如果存在缓存，则返回；
+// 否则，如果定义了 LoaderFunc 回调，则执行回调。
 func (c *LRUCache) Get(key interface{}) (interface{}, error) {
 	v, err := c.get(key, false)
 	if err == KeyNotFoundError {
@@ -124,8 +130,10 @@ func (c *LRUCache) get(key interface{}, onLoad bool) (interface{}, error) {
 func (c *LRUCache) getValue(key interface{}, onLoad bool) (interface{}, error) {
 	c.mu.Lock()
 	item, ok := c.items[key]
+	// 命中缓存
 	if ok {
 		it := item.Value.(*lruItem)
+		// 缓存未过期
 		if !it.IsExpired(nil) {
 			c.evictList.MoveToFront(item)
 			v := it.value
@@ -305,6 +313,7 @@ type lruItem struct {
 }
 
 // IsExpired returns boolean value whether this item is expired or not.
+// 键值对是否超时
 func (it *lruItem) IsExpired(now *time.Time) bool {
 	if it.expiration == nil {
 		return false

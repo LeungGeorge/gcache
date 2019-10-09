@@ -6,6 +6,7 @@ import (
 )
 
 // Constantly balances between LRU and LFU, to improve the combined result.
+// ARC 融合了 LRU 和 LFU
 type ARC struct {
 	baseCache
 	items map[interface{}]*arcItem
@@ -13,8 +14,8 @@ type ARC struct {
 	part int
 	t1   *arcList
 	t2   *arcList
-	b1   *arcList
-	b2   *arcList
+	b1   *arcList // t1 中淘汰的数据
+	b2   *arcList // t2 中淘汰的数据
 }
 
 func newARC(cb *CacheBuilder) *ARC {
@@ -378,6 +379,7 @@ func (c *ARC) setPart(p int) {
 	}
 }
 
+// t1 长度 + t2 的长度 == 缓存 size
 func (c *ARC) isCacheFull() bool {
 	return (c.t1.Len() + c.t2.Len()) == c.size
 }
@@ -418,6 +420,7 @@ func (al *arcList) Has(key interface{}) bool {
 	return ok
 }
 
+// 查询 arcList 中 key 对应的键值对
 func (al *arcList) Lookup(key interface{}) *list.Element {
 	elt := al.keys[key]
 	return elt

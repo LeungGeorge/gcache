@@ -59,6 +59,7 @@ type (
 )
 
 // CacheBuilder 构造缓存对象，以及各种个性化化配置、策略。
+// 构建 cache 时，会赋值给 baseCache 中对应的字段
 type CacheBuilder struct {
 	clock            Clock            // cache 时钟
 	tp               string           // 缓存类型：TYPE_SIMPLE，TYPE_LRU，TYPE_LFU，TYPE_ARC
