@@ -2,6 +2,7 @@ package gcache
 
 import (
 	"container/list"
+	"fmt"
 	"time"
 )
 
@@ -12,10 +13,10 @@ type ARC struct {
 	items map[interface{}]*arcItem
 
 	part int
-	t1   *arcList
-	t2   *arcList
-	b1   *arcList // t1 中淘汰的数据
-	b2   *arcList // t2 中淘汰的数据
+	t1   *arcList // LRU List.
+	t2   *arcList // LFU List.
+	b1   *arcList // Ghost list for LRU, t1 中淘汰的数据
+	b2   *arcList // Ghost list for LFU, t2 中淘汰的数据
 }
 
 func newARC(cb *CacheBuilder) *ARC {
@@ -35,23 +36,30 @@ func (c *ARC) init() {
 	c.b2 = newARCList()
 }
 
+// replace
+// 1. 淘汰数据 t1, t2 数据到 b1 b2
+// 2. 从 items 中删除键值对
 func (c *ARC) replace(key interface{}) {
 	if !c.isCacheFull() {
 		return
 	}
 	var old interface{}
 	if c.t1.Len() > 0 && ((c.b2.Has(key) && c.t1.Len() == c.part) || (c.t1.Len() > c.part)) {
+		// t1 淘汰到 b1
 		old = c.t1.RemoveTail()
 		c.b1.PushFront(old)
 	} else if c.t2.Len() > 0 {
+		// t2 淘汰到 b2
 		old = c.t2.RemoveTail()
 		c.b2.PushFront(old)
 	} else {
+		// t1 淘汰到 b1
 		old = c.t1.RemoveTail()
 		c.b1.PushFront(old)
 	}
 	item, ok := c.items[old]
 	if ok {
+		// 删除已淘汰的数据
 		delete(c.items, old)
 		if c.evictedFunc != nil {
 			c.evictedFunc(item.key, item.value)
@@ -60,6 +68,7 @@ func (c *ARC) replace(key interface{}) {
 }
 
 func (c *ARC) Set(key, value interface{}) error {
+	fmt.Printf("Set:part:%d\n", c.part)
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	_, err := c.set(key, value)
@@ -116,6 +125,8 @@ func (c *ARC) set(key, value interface{}) (interface{}, error) {
 		return item, nil
 	}
 
+	// 高频访问
+	// 移动键值对 (from b1 to t2)
 	if elt := c.b1.Lookup(key); elt != nil {
 		c.setPart(minInt(c.size, c.part+maxInt(c.b2.Len()/c.b1.Len(), 1)))
 		c.replace(key)
@@ -124,6 +135,8 @@ func (c *ARC) set(key, value interface{}) (interface{}, error) {
 		return item, nil
 	}
 
+	// 高频访问
+	// 移动键值对 (from b2 to t2)
 	if elt := c.b2.Lookup(key); elt != nil {
 		c.setPart(maxInt(0, c.part-maxInt(c.b1.Len()/c.b2.Len(), 1)))
 		c.replace(key)
@@ -133,10 +146,11 @@ func (c *ARC) set(key, value interface{}) (interface{}, error) {
 	}
 
 	if c.isCacheFull() && c.t1.Len()+c.b1.Len() == c.size {
-		if c.t1.Len() < c.size {
-			c.b1.RemoveTail()
-			c.replace(key)
+		if c.t1.Len() < c.size { // t1 存在待淘汰数据
+			c.b1.RemoveTail() // 移除 1 个待淘汰数据
+			c.replace(key)    // 移动到待淘汰数据组：b1 or b2
 		} else {
+			// t1.Len() == c.size()，t1 与缓存相同大小（满了），直接淘汰尾部键值对
 			pop := c.t1.RemoveTail()
 			item, ok := c.items[pop]
 			if ok {
@@ -159,6 +173,8 @@ func (c *ARC) set(key, value interface{}) (interface{}, error) {
 			c.replace(key)
 		}
 	}
+
+	// t1 新增键值对
 	c.t1.PushFront(key)
 	return item, nil
 }
@@ -207,6 +223,7 @@ func (c *ARC) getValue(key interface{}, onLoad bool) (interface{}, error) {
 			}
 			return item.value, nil
 		} else {
+			// TODO else 可以去掉
 			delete(c.items, key)
 			c.b1.PushFront(key)
 			if c.evictedFunc != nil {
@@ -223,6 +240,7 @@ func (c *ARC) getValue(key interface{}, onLoad bool) (interface{}, error) {
 			}
 			return item.value, nil
 		} else {
+			// TODO else 可以去掉
 			delete(c.items, key)
 			c.t2.Remove(key, elt)
 			c.b2.PushFront(key)
@@ -421,6 +439,7 @@ func (al *arcList) Has(key interface{}) bool {
 }
 
 // 查询 arcList 中 key 对应的键值对
+// 不存时返回 nil
 func (al *arcList) Lookup(key interface{}) *list.Element {
 	elt := al.keys[key]
 	return elt
