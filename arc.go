@@ -2,7 +2,6 @@ package gcache
 
 import (
 	"container/list"
-	"fmt"
 	"time"
 )
 
@@ -15,8 +14,8 @@ type ARC struct {
 	part int
 	t1   *arcList // LRU List.
 	t2   *arcList // LFU List.
-	b1   *arcList // Ghost list for LRU, t1 中淘汰的数据
-	b2   *arcList // Ghost list for LFU, t2 中淘汰的数据
+	b1   *arcList // Ghost list for LRU
+	b2   *arcList // Ghost list for LFU
 }
 
 func newARC(cb *CacheBuilder) *ARC {
@@ -68,7 +67,6 @@ func (c *ARC) replace(key interface{}) {
 }
 
 func (c *ARC) Set(key, value interface{}) error {
-	fmt.Printf("Set:part:%d\n", c.part)
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	_, err := c.set(key, value)
@@ -145,12 +143,12 @@ func (c *ARC) set(key, value interface{}) (interface{}, error) {
 		return item, nil
 	}
 
+	// 缓存满：选择性淘汰 t1，b1，b2
 	if c.isCacheFull() && c.t1.Len()+c.b1.Len() == c.size {
-		if c.t1.Len() < c.size { // t1 存在待淘汰数据
-			c.b1.RemoveTail() // 移除 1 个待淘汰数据
-			c.replace(key)    // 移动到待淘汰数据组：b1 or b2
+		if c.t1.Len() < c.size {
+			c.b1.RemoveTail()
+			c.replace(key)
 		} else {
-			// t1.Len() == c.size()，t1 与缓存相同大小（满了），直接淘汰尾部键值对
 			pop := c.t1.RemoveTail()
 			item, ok := c.items[pop]
 			if ok {
@@ -231,6 +229,7 @@ func (c *ARC) getValue(key interface{}, onLoad bool) (interface{}, error) {
 			}
 		}
 	}
+
 	if elt := c.t2.Lookup(key); elt != nil {
 		item := c.items[key]
 		if !item.IsExpired(nil) {
